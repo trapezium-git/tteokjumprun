@@ -1,1 +1,409 @@
-# tteokjumprun
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sprout Jump!</title>
+<style>
+* { box-sizing:border-box; }
+body {
+  margin:0;
+  background:#dff5ed;
+  font-family:Arial,sans-serif;
+  overflow:hidden;
+  user-select:none;
+}
+canvas {
+  display:block;
+  width:100vw;
+  height:100vh;
+}
+#ui {
+  position:fixed;
+  top:18px;
+  left:20px;
+  right:20px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  pointer-events:none;
+  color:#242424;
+  font-weight:bold;
+  font-size:20px;
+}
+#restart {
+  pointer-events:auto;
+  border:3px solid #222;
+  border-radius:15px;
+  padding:9px 16px;
+  background:white;
+  font-weight:bold;
+  cursor:pointer;
+}
+#controls {
+  position:fixed;
+  bottom:22px;
+  width:100%;
+  display:flex;
+  justify-content:space-between;
+  padding:0 25px;
+}
+.control {
+  width:65px;
+  height:65px;
+  border:3px solid #222;
+  background:#fff;
+  border-radius:20px;
+  font-size:27px;
+  font-weight:bold;
+  touch-action:none;
+}
+.jump { background:#8ce0a0; width:85px; }
+#message {
+  position:fixed;
+  top:42%;
+  width:100%;
+  text-align:center;
+  font-size:34px;
+  font-weight:900;
+  color:#222;
+  pointer-events:none;
+  text-shadow:2px 2px white;
+}
+</style>
+</head>
+<body>
+
+<div id="ui">
+  <div>🌱 SPROUT JUMP! <span id="level">1</span></div>
+  <button id="restart">↻ 다시하기</button>
+</div>
+
+<div id="message"></div>
+<canvas id="game"></canvas>
+
+<div id="controls">
+  <div>
+    <button class="control" id="left">◀</button>
+    <button class="control" id="right">▶</button>
+  </div>
+  <button class="control jump" id="jump">⬆</button>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let W,H;
+function resize(){
+  W=canvas.width=innerWidth*devicePixelRatio;
+  H=canvas.height=innerHeight*devicePixelRatio;
+  ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+  W=innerWidth; H=innerHeight;
+}
+addEventListener("resize",resize);
+resize();
+
+let keys={};
+let level=0;
+let camera=0;
+let won=false;
+let dead=false;
+let time=0;
+
+const levels=[
+ {
+  platforms:[
+   [0,500,300,80],
+   [390,440,130,25],
+   [590,365,130,25],
+   [820,430,150,25],
+   [1080,350,150,25],
+   [1350,500,300,80]
+  ],
+  goal:1450
+ },
+ {
+  platforms:[
+   [0,500,220,80],
+   [310,410,120,25],
+   [500,320,120,25],
+   [710,400,110,25],
+   [900,300,120,25],
+   [1100,390,120,25],
+   [1330,500,300,80]
+  ],
+  goal:1440
+ },
+ {
+  platforms:[
+   [0,500,180,80],
+   [270,400,110,25],
+   [470,290,110,25],
+   [670,390,110,25],
+   [870,260,110,25],
+   [1080,370,110,25],
+   [1300,500,350,80]
+  ],
+  goal:1430
+ }
+];
+
+let player={
+ x:70,y:400,vx:0,vy:0,
+ w:90,h:75,
+ grounded:false,
+ jumpPower:0
+};
+
+function reset(){
+ player.x=70;
+ player.y=390;
+ player.vx=0;
+ player.vy=0;
+ player.grounded=false;
+ camera=0;
+ won=false;
+ dead=false;
+ document.getElementById("message").textContent="";
+}
+function nextLevel(){
+ level++;
+ if(level>=levels.length) level=0;
+ document.getElementById("level").textContent=level+1;
+ reset();
+}
+
+function drawCharacter(x,y){
+ ctx.save();
+ ctx.translate(x-camera,y);
+
+ // 그림자
+ ctx.fillStyle="rgba(40,70,60,.15)";
+ ctx.beginPath();
+ ctx.ellipse(45,76,48,7,0,0,Math.PI*2);
+ ctx.fill();
+
+ // 몸통
+ ctx.fillStyle="#fffefa";
+ ctx.strokeStyle="#202020";
+ ctx.lineWidth=9;
+ ctx.beginPath();
+ ctx.moveTo(5,23);
+ ctx.bezierCurveTo(10,-5,75,-5,87,22);
+ ctx.bezierCurveTo(110,65,75,76,45,75);
+ ctx.bezierCurveTo(8,75,-12,57,5,23);
+ ctx.fill();
+ ctx.stroke();
+
+ // 눈
+ ctx.fillStyle="#202020";
+ ctx.beginPath();
+ ctx.arc(30,42,5.5,0,Math.PI*2);
+ ctx.arc(68,38,5.5,0,Math.PI*2);
+ ctx.fill();
+
+ // 줄기
+ ctx.strokeStyle="#202020";
+ ctx.lineWidth=8;
+ ctx.beginPath();
+ ctx.moveTo(46,0);
+ ctx.lineTo(42,-21);
+ ctx.stroke();
+
+ // 새싹
+ ctx.fillStyle="#65bd77";
+ ctx.lineWidth=8;
+ ctx.beginPath();
+ ctx.ellipse(27,-42,27,17,-.1,0,Math.PI*2);
+ ctx.fill();
+ ctx.stroke();
+
+ ctx.beginPath();
+ ctx.ellipse(69,-45,25,17,-.2,0,Math.PI*2);
+ ctx.fill();
+ ctx.stroke();
+
+ ctx.restore();
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+
+ // 배경
+ const gradient=ctx.createLinearGradient(0,0,0,H);
+ gradient.addColorStop(0,"#dff7ef");
+ gradient.addColorStop(1,"#c4e6b1");
+ ctx.fillStyle=gradient;
+ ctx.fillRect(0,0,W,H);
+
+ // 구름
+ ctx.fillStyle="rgba(255,255,255,.65)";
+ for(let i=0;i<6;i++){
+  let x=(i*270-camera*.25)%(W+200);
+  ctx.beginPath();
+  ctx.arc(x,100+(i%3)*45,24,0,Math.PI*2);
+  ctx.arc(x+25,90+(i%3)*45,30,0,Math.PI*2);
+  ctx.arc(x+55,105+(i%3)*45,23,0,Math.PI*2);
+  ctx.fill();
+ }
+
+ // 바닥
+ ctx.fillStyle="#94d28e";
+ ctx.fillRect(0,H-65,W,65);
+
+ // 발판
+ let stage=levels[level];
+ stage.platforms.forEach((p,i)=>{
+  let x=p[0]-camera;
+  let y=p[1];
+
+  if(x<-200 || x>W+200)return;
+
+  ctx.fillStyle="#7acb83";
+  ctx.strokeStyle="#252525";
+  ctx.lineWidth=4;
+  ctx.beginPath();
+  ctx.roundRect(x,y,p[2],p[3],10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle="#b4edac";
+  ctx.fillRect(x+8,y+5,p[2]-16,7);
+ });
+
+ // 골인 지점
+ let gx=stage.goal-camera;
+ ctx.fillStyle="#ffdb65";
+ ctx.fillRect(gx,380,9,120);
+ ctx.fillStyle="#fff";
+ ctx.strokeStyle="#222";
+ ctx.lineWidth=3;
+ ctx.fillRect(gx+8,380,70,38);
+ ctx.strokeRect(gx+8,380,70,38);
+ ctx.fillStyle="#222";
+ ctx.font="bold 17px Arial";
+ ctx.fillText("GOAL!",gx+15,405);
+
+ drawCharacter(player.x,player.y);
+
+ if(won || dead){
+  ctx.fillStyle="rgba(255,255,255,.25)";
+  ctx.fillRect(0,0,W,H);
+ }
+}
+
+function update(){
+ if(!won && !dead){
+  time++;
+
+  // 이동
+  if(keys.left) player.vx-=0.7;
+  if(keys.right) player.vx+=0.7;
+
+  player.vx*=0.88;
+  player.vx=Math.max(-6,Math.min(6,player.vx));
+
+  // 점프 충전
+  if(keys.jump && player.grounded){
+   player.jumpPower=Math.min(player.jumpPower+0.55,15);
+  }
+
+  if(!keys.jump && player.jumpPower>0){
+   player.vy=-player.jumpPower-3;
+   player.grounded=false;
+   player.jumpPower=0;
+  }
+
+  player.vy+=0.55;
+  player.vy=Math.min(player.vy,13);
+
+  player.x+=player.vx;
+  player.y+=player.vy;
+
+  player.grounded=false;
+
+  let stage=levels[level];
+
+  // 발판 충돌
+  stage.platforms.forEach(p=>{
+   let [px,py,pw,ph]=p;
+
+   if(
+    player.x+80>px &&
+    player.x+10<px+pw &&
+    player.y+75>=py &&
+    player.y+75-player.vy<=py+10 &&
+    player.vy>=0
+   ){
+    player.y=py-75;
+    player.vy=0;
+    player.grounded=true;
+   }
+  });
+
+  // 화면 이동
+  camera=Math.max(0,player.x-W*.35);
+
+  // 추락
+  if(player.y>H+100){
+   dead=true;
+   document.getElementById("message").textContent="앗! 다시 도전해 봐!";
+  }
+
+  // 골인
+  if(player.x+80>stage.goal){
+   won=true;
+   document.getElementById("message").textContent="🎉 STAGE CLEAR!";
+   setTimeout(()=>{
+    if(won){
+     nextLevel();
+    }
+   },1500);
+  }
+ }
+ draw();
+ requestAnimationFrame(update);
+}
+
+function setKey(k,v){
+ keys[k]=v;
+}
+
+addEventListener("keydown",e=>{
+ if(["ArrowLeft","ArrowRight"," ","ArrowUp"].includes(e.key))
+  e.preventDefault();
+
+ if(e.key==="ArrowLeft"||e.key==="a")setKey("left",true);
+ if(e.key==="ArrowRight"||e.key==="d")setKey("right",true);
+ if(e.key===" "||e.key==="ArrowUp"||e.key==="w")setKey("jump",true);
+});
+addEventListener("keyup",e=>{
+ if(e.key==="ArrowLeft"||e.key==="a")setKey("left",false);
+ if(e.key==="ArrowRight"||e.key==="d")setKey("right",false);
+ if(e.key===" "||e.key==="ArrowUp"||e.key==="w")setKey("jump",false);
+});
+
+function bindButton(id,key){
+ let b=document.getElementById(id);
+ b.addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  setKey(key,true);
+ });
+ ["pointerup","pointerleave","pointercancel"].forEach(ev=>{
+  b.addEventListener(ev,()=>setKey(key,false));
+ });
+}
+bindButton("left","left");
+bindButton("right","right");
+bindButton("jump","jump");
+
+document.getElementById("restart").onclick=()=>{
+ level=0;
+ document.getElementById("level").textContent=1;
+ reset();
+};
+
+update();
+</script>
+</body>
+</html>
